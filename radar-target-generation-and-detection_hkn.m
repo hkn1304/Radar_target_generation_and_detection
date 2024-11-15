@@ -45,32 +45,17 @@ Mix = zeros(1,length(t)); % beat signal
 r_t=zeros(1,length(t));
 td=zeros(1,length(t));
 
+% Update the Range of the Target for constant velocity. 
+r_t = Range_target + t(i)*Vel_target;
+td = 2 * r_t./c;
+% Update the transmitted and received signal. 
+Tx = cos(2*pi*(fc*t + 0.5*(slope*(t.^2))));
+Rx = cos(2*pi*(fc*(t - td) + 0.5*(slope*((t - td).^2))));
+%Now by mixing the Transmit and Receive generate the beat signal
+Mix = Tx .* Rx;
 
-%% Signal generation and Moving Target simulation
-% Running the radar scenario over the time. 
-
-for i=1:length(t)         
-    
-    
-    %For each time stamp update the Range of the Target for constant velocity. 
-    r_t(i) = Range_target + t(i)*Vel_target;
-    td(i) = r_t(i)*2/c;
-    
-    %For each time sample we need update the transmitted and
-    %received signal. 
-    Tx(i)  = cos(2*pi*(fc*t(i)+0.5*slope*t(i)^2)); 
-    Rx(i)  = cos(2*pi*(fc*(t(i)-td(i))+0.5*(t(i)-td(i))^2*slope));
-    
-    
-    %Now by mixing the Transmit and Receive generate the beat signal
-    %This is done by element wise matrix multiplication of Transmit and
-    %Receiver Signal
-    Mix(i) = Tx(i).*Rx(i);
-    
-end
 
 %% RANGE MEASUREMENT
-
 
 %reshape the vector into Nr*Nd array. Nr and Nd here would also define the size of
 %Range and Doppler FFT respectively.
@@ -175,29 +160,19 @@ RDM = RDM/max(max(RDM));
 [row, col] = size(RDM);
 Cell_Under_Test = zeros(row,col);
 
-    for i = Tr+Gr+1:(Nr/2-Tr-Gr)
-        for j = Tc+Gc+1:(Nd-Tc-Gc)
-            noise_level = zeros(1,1);
-            for k = (i-(Tr+Gr) ) : (i+Tr+Gr)
-                for h = (j-(Tc+Gc) ) : (j+Gc+Tc)
-                    if(abs(k-i)>Gr||abs(h-j)>Gc)
-                        noise_level = noise_level + db2pow(RDM(k,h));
-                    end
-                end
-            end
-            length = 2*(Tr+Gr)+1;
-            width =  2*(Tc+Gc)+1;
-            threshold = pow2db(noise_level/(length*width-(2*Gr+1)*(2*Gc+1)))*1.4;
-            %Add offset to threshold
-            threshold = threshold + offset;
-            if(RDM(i,j)>threshold)
-                Cell_Under_Test(i,j) = 1;
-            else
-                Cell_Under_Test(i,j) = 0;
-            end
-        end
-    end
+%# Vectorized form
+%# Use conv2 to do the averaging
+%# Define mask where guard bands + centre is set to 0
+%# Divide by the total number of non-zero elements
+mask = ones(2  *Tr + 2*  Gr + 1, 2  *Td + 2*  Gd + 1);
+centre_coord = [Tr + Gr + 1, Td + Gd + 1];
+mask(centre_coord(1) - Gr : centre_coord(1) + Gr, centre_coord(2) - Gd : centre_coord(2) + Gd) = 0;
+mask = mask / sum(mask(:));
 
+%# Convolve, then convert back to dB to add the offset
+%# The convolution defines the threshold
+threshold = conv2(db2pow(RDM), mask, 'same');
+threshold = pow2db(threshold) + offset;
 
 
 % The process above will generate a thresholded block, which is smaller 
